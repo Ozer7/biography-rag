@@ -10,7 +10,7 @@ MCON 368 homework. Upload any collection of pages about one person; the app chun
 |---|---|
 | Upload | `.txt`, `.md`, `.html`, `.pdf` (pdf.js), `.docx` (mammoth), or web addresses (fetched by `api/fetch-url.js`). Everything is read in the browser. |
 | Chunk | Paragraph/sentence-aware chunks of ~1,000 characters with ~200 characters of overlap. IDs look like `D2-C0153` (document 2, chunk 153). Project Gutenberg boilerplate is stripped. |
-| Embed | `all-MiniLM-L6-v2` (int8 ONNX) running **in the browser** with onnxruntime-web, in a Web Worker. No API cost per page, and it works for any corpus size. |
+| Embed | `all-MiniLM-L6-v2` running **in the browser** with onnxruntime-web in a Web Worker: on the GPU (WebGPU, fp16) when available, otherwise the CPU (WebAssembly, int8, all cores). Both match the published reference embeddings. No API cost per page. Add `?cpu` to the URL to force the CPU. |
 | Store | Chunks + vectors are saved in the browser's IndexedDB and can be downloaded/reopened as a `.store.json` file. |
 | Retrieve | For each question plus 1–2 extra search phrasings: embeddings (mean-centered cosine, with a hubness correction) + BM25 keywords → reciprocal-rank fusion → MMR → top 8 chunks. |
 | Gate | If the best chunk is below a similarity threshold, the answer is "not in the sources" and the LLM is never called. |
@@ -76,7 +76,7 @@ api/fetch-url.js       fetch a web page or PDF for the corpus
 public/index.html      the app            public/app.js   UI logic
 public/embed-worker.js embedding in a Web Worker
 public/lib/            chunker, tokenizer, embedder, bm25, retrieve, queries, prompts, verify, pipeline, report
-public/models/minilm/  all-MiniLM-L6-v2 int8 ONNX + vocab (Apache-2.0)
+public/models/minilm/  all-MiniLM-L6-v2 ONNX (int8 for CPU, fp16 for GPU) + vocab (Apache-2.0)
 public/corpus/         the Franklin test corpus      public/demo/  prebuilt store
 public/runs/           published run logs (story, logs, review)
 scripts/               build, test and evaluation tools

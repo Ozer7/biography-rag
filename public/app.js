@@ -37,7 +37,7 @@ function getWorker() {
       };
       worker.onerror = e => bad(new Error(e.message || 'Embedding worker failed'));
     });
-    worker.postMessage({ type: 'init' });
+    worker.postMessage({ type: 'init', preferGPU: !/[?&]cpu\b/.test(location.search) });
   }
   return workerReady;
 }
@@ -113,19 +113,22 @@ async function buildStore() {
     prog.textContent = 'Chunking…';
     const chunks = chunkDocuments(docs);
     if (!chunks.length) throw new Error('No text chunks were produced.');
-    prog.textContent = 'Loading the embedding model (23 MB, first time only)…';
+    prog.textContent = 'Loading the embedding model (first time only)…';
     const info = await getWorker();
-    const vectors = new Float32Array(chunks.length * 384), B = 16, t0 = performance.now();
-    for (let i = 0; i < chunks.length; i += B) {
-      const flat = await embedFlat(chunks.slice(i, i + B).map(c => c.text));
-      vectors.set(flat, i * 384);
+    const vectors = new Float32Array(chunks.length * 384), B = info.batch || 16, t0 = performance.now();
+    // Embed in order of length so each batch has similar-length texts (less padding = faster).
+    const order = chunks.map((c, i) => i).sort((a, b) => chunks[a].text.length - chunks[b].text.length);
+    for (let i = 0; i < order.length; i += B) {
+      const idx = order.slice(i, i + B);
+      const flat = await embedFlat(idx.map(j => chunks[j].text));
+      idx.forEach((j, k) => vectors.set(flat.subarray(k * 384, (k + 1) * 384), j * 384));
       const done = Math.min(chunks.length, i + B), el = (performance.now() - t0) / 1000, eta = el / done * (chunks.length - done);
-      prog.innerHTML = `<span class="bar"><i style="width:${(100 * done / chunks.length).toFixed(1)}%"></i></span>Embedding ${done.toLocaleString()}/${chunks.length.toLocaleString()} chunks · ${info.threads} thread${info.threads > 1 ? 's' : ''} · ~${Math.ceil(eta)}s left`;
+      prog.innerHTML = `<span class="bar"><i style="width:${(100 * done / chunks.length).toFixed(1)}%"></i></span>Embedding ${done.toLocaleString()}/${chunks.length.toLocaleString()} chunks on ${info.backend} · ~${Math.ceil(eta)}s left`;
     }
     store = finishStore({ person, created: new Date().toISOString(), chunkParams: CHUNK_PARAMS, embedModel: EMBED_MODEL, docs: docs.map(({ text, ...d }) => d), chunks, vectors });
     prog.textContent = 'Saving the store in this browser…';
     await idbSet('store', serializeStore(store));
-    prog.textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(0)}s.`;
+    prog.textContent = `Done: ${chunks.length.toLocaleString()} chunks embedded in ${((performance.now() - t0) / 1000).toFixed(0)}s on ${info.backend}.`;
     renderStoreStatus(); renderQuestions();
   } catch (e) { prog.textContent = ''; alert('Build failed: ' + e.message); }
   btn.disabled = !pending.length;

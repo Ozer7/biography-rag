@@ -8,11 +8,11 @@ export const EMBED_DIM = 384;
 export const MAX_TOKENS = 256;
 
 export class Embedder {
-  static async create(ort, modelBytes, vocabText) {
+  static async create(ort, modelBytes, vocabText, executionProviders = ['wasm']) {
     const e = new Embedder();
     e.ort = ort;
     e.tok = new WordPieceTokenizer(vocabText);
-    e.session = await ort.InferenceSession.create(modelBytes, { executionProviders: ['wasm'] });
+    e.session = await ort.InferenceSession.create(modelBytes, { executionProviders, graphOptimizationLevel: 'all' });
     e.inputNames = e.session.inputNames;
     return e;
   }
