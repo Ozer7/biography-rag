@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biography RAG</title>
+<meta name="description" content="Upload pages about one person; the app answers 20 questions and writes a story using only the retrieved snippets, with a chunk ID on every sentence.">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231d1b16'/%3E%3Ctext x='16' y='23' font-family='Georgia' font-size='20' text-anchor='middle' fill='%23f6f1e7'%3E%C2%B6%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">
+    <p class="kicker">MCON 368 · Biography RAG</p>
+    <h1>The Life, from the Sources</h1>
+    <p class="dek">Upload pages about one person. The app retrieves snippets for twenty questions and writes a story from those snippets only. Every sentence carries the ID of the chunk it came from; anything the sources don't cover is marked <em>not in the sources</em>.</p>
+    <nav class="steps-nav">
+      <a href="#corpus">1 · Corpus</a><a href="#run">2 · Run</a><a href="#story">3 · Story</a><a href="#review">4 · Review</a><a href="#logs">5 · Logs</a><a href="#how">How it works</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="corpus" class="panel">
+  <h2><span class="num">1</span> The corpus</h2>
+  <div class="store-status" id="storeStatus">No store loaded yet.</div>
+
+  <div class="grid2">
+    <div>
+      <label class="lbl" for="person">Whose life is this?</label>
+      <input id="person" type="text" placeholder="e.g. Benjamin Franklin" autocomplete="off">
+
+      <label class="lbl">Add pages</label>
+      <div class="drop" id="drop">
+        <p><strong>Drop files here</strong> or <label class="linkish" for="files">choose files</label></p>
+        <p class="hint">.txt · .md · .html · .pdf · .docx — any number</p>
+        <input id="files" type="file" multiple accept=".txt,.md,.markdown,.html,.htm,.pdf,.docx,text/*" hidden>
+      </div>
+      <label class="lbl" for="urls">…or paste web addresses (one per line)</label>
+      <textarea id="urls" rows="3" placeholder="https://en.wikipedia.org/wiki/…&#10;https://www.gutenberg.org/files/…/….txt"></textarea>
+      <button class="btn ghost" id="addUrls">Fetch these pages</button>
+    </div>
+
+    <div>
+      <div class="sample">
+        <p class="lbl">Test corpus: Benjamin Franklin</p>
+        <p>Six public-domain biographies from Project Gutenberg, about 1,450 pages.</p>
+        <div class="row">
+          <button class="btn ghost" id="useFranklin">Add the 6 books to the list</button>
+          <button class="btn ghost" id="loadPrebuilt">Load prebuilt store (instant)</button>
+        </div>
+        <ul class="booklist" id="bookList"></ul>
+      </div>
+    </div>
+  </div>
+
+  <table class="docs" id="docsTable" hidden>
+    <thead><tr><th>#</th><th>Document</th><th>~Pages</th><th>Characters</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="row">
+    <button class="btn" id="build" disabled>Chunk, embed &amp; store</button>
+    <span class="progress" id="buildProgress"></span>
+  </div>
+  <div class="row small">
+    <button class="btn link" id="exportStore" disabled>Download store file</button>
+    <label class="btn link" for="importStore">Open a store file</label><input id="importStore" type="file" accept=".json" hidden>
+    <button class="btn link" id="clearStore" disabled>Forget store</button>
+  </div>
+</section>
+
+<section id="run" class="panel">
+  <h2><span class="num">2</span> Ask the twenty questions</h2>
+  <ol class="qlist" id="qlist"></ol>
+  <label class="lbl" for="canaries">Canary questions — true facts about this person that are <em>not</em> in your corpus (one per line). The right answer is “not in the sources.”</label>
+  <textarea id="canaries" rows="3"></textarea>
+  <details class="settings">
+    <summary>Settings</summary>
+    <div class="grid3">
+      <label>Your own Gemini API key (optional)<input id="userKey" type="password" placeholder="leave blank to use the site's key" autocomplete="off"></label>
+      <label>Access code (if the site has one)<input id="accessCode" type="password" autocomplete="off"></label>
+      <label>Seconds between LLM calls<input id="pace" type="number" min="0" max="60" step="0.5" value="4"></label>
+    </div>
+    <p class="hint">Your key stays in this browser and is sent only to this site's /api/generate, which passes it to Google.</p>
+  </details>
+  <div class="row">
+    <button class="btn" id="runBtn" disabled>Run all 20 queries + canaries + story</button>
+    <span class="progress" id="runProgress"></span>
+  </div>
+  <ol class="runsteps" id="runSteps"></ol>
+</section>
+
+<section id="story" class="panel">
+  <h2><span class="num">3</span> The story</h2>
+  <p class="hint">Click any chunk ID to read the snippet it came from. Sentences the checker flagged are underlined in red.</p>
+  <article class="story" id="storyOut"><p class="empty">Run the queries to generate the story — or <button class="btn link" id="loadSample">view the sample Franklin run</button>.</p></article>
+</section>
+
+<section id="review" class="panel">
+  <h2><span class="num">4</span> Review of the logs</h2>
+  <div id="reviewOut"><p class="empty">Nothing yet.</p></div>
+</section>
+
+<section id="logs" class="panel">
+  <h2><span class="num">5</span> Logs — every query, its chunk IDs, and the exact prompt</h2>
+  <div class="row">
+    <button class="btn ghost" id="dlJson" disabled>Download log (JSON)</button>
+    <button class="btn ghost" id="dlMd" disabled>Download report (Markdown)</button>
+    <button class="btn ghost" id="dlStory" disabled>Download story</button>
+    <label class="btn link" for="openRun">Open a saved log</label><input id="openRun" type="file" accept=".json" hidden>
+  </div>
+  <div id="logsOut"></div>
+</section>
+
+<section id="how" class="panel how">
+  <h2>How it works</h2>
+  <ol>
+    <li><strong>Extract.</strong> Files are read in your browser (PDF via pdf.js, Word via mammoth). Project Gutenberg boilerplate is stripped.</li>
+    <li><strong>Chunk.</strong> Text is split on paragraph and sentence boundaries into ~1,000-character chunks with ~200 characters of overlap. Each chunk gets an ID like <code>D2-C0153</code> (document 2, chunk 153).</li>
+    <li><strong>Embed &amp; store.</strong> Each chunk is embedded in your browser with all-MiniLM-L6-v2 (ONNX, int8), so there is no per-page API cost. The store (chunks + vectors) is saved in your browser's IndexedDB and can be downloaded.</li>
+    <li><strong>Retrieve.</strong> Each question plus two extra phrasings is searched with embeddings (mean-centered cosine with a hubness correction) and BM25 keywords, fused with reciprocal-rank fusion, then diversified with MMR → top 8 chunks.</li>
+    <li><strong>Gate.</strong> If nothing retrieved is similar enough, the answer is “not in the sources” and the LLM is not called.</li>
+    <li><strong>Answer.</strong> The LLM gets only the 8 snippets and must return JSON: sentences, each with chunk IDs, or <code>not_in_sources</code>.</li>
+    <li><strong>Check.</strong> Code checks every sentence: it must have an ID, the ID must exist and have been retrieved for that question, and every number and name in it must appear in the cited chunk. Failing sentences are dropped before the story.</li>
+    <li><strong>Story.</strong> The LLM weaves the checked sentences into a story, citing IDs, and skips “not in the sources” topics. The story is checked the same way, then a second LLM pass audits each sentence against its snippets.</li>
+  </ol>
+  <p class="hint">Source: <a href="https://github.com/" id="repoLink">GitHub repo</a>. No API keys are in the code.</p>
+</section>
+
+</main>
+
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <button class="close" id="drawerClose" aria-label="Close">×</button>
+  <p class="kicker" id="drawerMeta"></p>
+  <h3 id="drawerId"></h3>
+  <div id="drawerText"></div>
+</aside>
+
+<footer class="foot wrap">Built for MCON 368. Embeddings run locally in your browser; answers by Gemini via a Vercel function.</footer>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "biography-rag",
+  "version": "1.0.0",
+  "description": "Biography RAG: upload pages about one person, retrieve, and write a story only from the retrieved snippets.",
+  "scripts": {
+    "build-store": "node scripts/build-store.mjs",
+    "test": "node scripts/test-pipeline.mjs",
+    "vendor": "node scripts/copy-vendor.mjs"
+  },
+  "author": "Oriel",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "mammoth": "^1.13.0",
+    "onnxruntime-web": "^1.31.1",
+    "pdfjs-dist": "^6.5.438"
+  }
+}
