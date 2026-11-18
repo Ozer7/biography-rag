@@ -23,28 +23,46 @@ const FRANKLIN_FILES = [
 
 let store = null, pending = [], run = null;
 
-// ---------- embedding worker ----------
-let worker = null, workerReady = null, reqId = 0;
-const waiting = new Map();
-function getWorker() {
-  if (!workerReady) {
-    worker = new Worker('/embed-worker.js', { type: 'module' });
-    workerReady = new Promise((ok, bad) => {
-      worker.onmessage = ({ data }) => {
-        if (data.type === 'ready') ok(data);
-        else if (data.type === 'vecs') { waiting.get(data.id)?.ok(data.flat); waiting.delete(data.id); }
-        else if (data.type === 'error') { if (waiting.has(data.id)) { waiting.get(data.id).bad(new Error(data.error)); waiting.delete(data.id); } else bad(new Error(data.error)); }
+// ---------- embedding workers ----------
+// The main worker uses the GPU if it can, otherwise the CPU. When it got the GPU, a second
+// CPU worker is started for big builds, and the two split the batches between them.
+let reqId = 0;
+class EmbedWorker {
+  constructor(preferGPU, helper = false) {
+    this.w = new Worker('/embed-worker.js', { type: 'module' });
+    this.waiting = new Map();
+    this.ready = new Promise((ok, bad) => {
+      this.w.onmessage = ({ data }) => {
+        if (data.type === 'ready') { this.info = data; ok(data); }
+        else if (data.type === 'vecs') { this.waiting.get(data.id)?.ok(data.flat); this.waiting.delete(data.id); }
+        else if (data.type === 'error') { if (this.waiting.has(data.id)) { this.waiting.get(data.id).bad(new Error(data.error)); this.waiting.delete(data.id); } else bad(new Error(data.error)); }
       };
-      worker.onerror = e => bad(new Error(e.message || 'Embedding worker failed'));
+      this.w.onerror = e => bad(new Error(e.message || 'Embedding worker failed'));
     });
-    worker.postMessage({ type: 'init', preferGPU: !/[?&]cpu\b/.test(location.search) });
+    this.w.postMessage({ type: 'init', preferGPU, helper });
   }
-  return workerReady;
+  async embed(texts) {
+    await this.ready;
+    const id = ++reqId;
+    return new Promise((ok, bad) => { this.waiting.set(id, { ok, bad }); this.w.postMessage({ type: 'embed', id, texts }); });
+  }
+}
+let mainWorker = null, helperWorker = null;
+function getWorker() {
+  if (!mainWorker) mainWorker = new EmbedWorker(!/[?&]cpu\b/.test(location.search));
+  return mainWorker.ready;
+}
+async function getPool() {
+  await getWorker();
+  if (mainWorker.info.backend.startsWith('GPU') && !helperWorker && !/[?&]single\b/.test(location.search)) {
+    helperWorker = new EmbedWorker(false, true);
+    try { await helperWorker.ready; } catch { helperWorker = null; }
+  }
+  return helperWorker ? [mainWorker, helperWorker] : [mainWorker];
 }
 async function embedFlat(texts) {
   await getWorker();
-  const id = ++reqId;
-  return new Promise((ok, bad) => { waiting.set(id, { ok, bad }); worker.postMessage({ type: 'embed', id, texts }); });
+  return mainWorker.embed(texts);
 }
 async function embedVecs(texts) {
   const flat = await embedFlat(texts);
@@ -114,21 +132,30 @@ async function buildStore() {
     const chunks = chunkDocuments(docs);
     if (!chunks.length) throw new Error('No text chunks were produced.');
     prog.textContent = 'Loading the embedding model (first time only)…';
-    const info = await getWorker();
-    const vectors = new Float32Array(chunks.length * 384), B = info.batch || 16, t0 = performance.now();
+    const pool = await getPool();
+    const backend = pool.map(w => w.info.backend).join(' + ');
+    const vectors = new Float32Array(chunks.length * 384), t0 = performance.now();
     // Embed in order of length so each batch has similar-length texts (less padding = faster).
     const order = chunks.map((c, i) => i).sort((a, b) => chunks[a].text.length - chunks[b].text.length);
-    for (let i = 0; i < order.length; i += B) {
-      const idx = order.slice(i, i + B);
-      const flat = await embedFlat(idx.map(j => chunks[j].text));
-      idx.forEach((j, k) => vectors.set(flat.subarray(k * 384, (k + 1) * 384), j * 384));
-      const done = Math.min(chunks.length, i + B), el = (performance.now() - t0) / 1000, eta = el / done * (chunks.length - done);
-      prog.innerHTML = `<span class="bar"><i style="width:${(100 * done / chunks.length).toFixed(1)}%"></i></span>Embedding ${done.toLocaleString()}/${chunks.length.toLocaleString()} chunks on ${info.backend} · ~${Math.ceil(eta)}s left`;
-    }
+    let next = 0, done = 0;
+    const show = () => {
+      const el = (performance.now() - t0) / 1000, eta = el / Math.max(1, done) * (chunks.length - done);
+      prog.innerHTML = `<span class="bar"><i style="width:${(100 * done / chunks.length).toFixed(1)}%"></i></span>Embedding ${done.toLocaleString()}/${chunks.length.toLocaleString()} chunks on ${backend} · ~${Math.ceil(eta)}s left`;
+    };
+    // Each worker pulls the next batch until none are left.
+    await Promise.all(pool.map(async w => {
+      const B = w.info.batch || 16;
+      while (next < order.length) {
+        const idx = order.slice(next, next + B); next += B;
+        const flat = await w.embed(idx.map(j => chunks[j].text));
+        idx.forEach((j, k) => vectors.set(flat.subarray(k * 384, (k + 1) * 384), j * 384));
+        done += idx.length; show();
+      }
+    }));
     store = finishStore({ person, created: new Date().toISOString(), chunkParams: CHUNK_PARAMS, embedModel: EMBED_MODEL, docs: docs.map(({ text, ...d }) => d), chunks, vectors });
     prog.textContent = 'Saving the store in this browser…';
     await idbSet('store', serializeStore(store));
-    prog.textContent = `Done: ${chunks.length.toLocaleString()} chunks embedded in ${((performance.now() - t0) / 1000).toFixed(0)}s on ${info.backend}.`;
+    prog.textContent = `Done: ${chunks.length.toLocaleString()} chunks embedded in ${((performance.now() - t0) / 1000).toFixed(0)}s on ${backend}.`;
     renderStoreStatus(); renderQuestions();
   } catch (e) { prog.textContent = ''; alert('Build failed: ' + e.message); }
   btn.disabled = !pending.length;

@@ -26,10 +26,11 @@ async function tryWebGPU(vocab) {
   return e;
 }
 
-async function useCPU(vocab) {
+async function useCPU(vocab, helper) {
   const ort = await import('/vendor/ort/ort.wasm.min.mjs');
   ort.env.wasm.wasmPaths = '/vendor/ort/';
-  threads = self.crossOriginIsolated ? Math.max(1, Math.min(8, navigator.hardwareConcurrency || 2)) : 1;
+  // A helper worker running beside the GPU worker leaves one core free for it.
+  threads = self.crossOriginIsolated ? Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 2) - (helper ? 1 : 0))) : 1;
   ort.env.wasm.numThreads = threads;
   return Embedder.create(ort, await fetchBytes('/models/minilm/model_int8.onnx'), vocab, ['wasm']);
 }
@@ -42,7 +43,7 @@ self.onmessage = async ({ data }) => {
         try { emb = await tryWebGPU(vocab); if (emb) backend = 'GPU (WebGPU)'; }
         catch (e) { emb = null; console.warn('WebGPU unavailable, using CPU:', e.message); }
       }
-      if (!emb) { emb = await useCPU(vocab); backend = `CPU (${threads} thread${threads > 1 ? 's' : ''})`; }
+      if (!emb) { emb = await useCPU(vocab, data.helper); backend = `CPU (${threads} thread${threads > 1 ? 's' : ''})`; }
       self.postMessage({ type: 'ready', backend, batch: backend.startsWith('GPU') ? 64 : 16 });
     } else if (data.type === 'embed') {
       const vecs = await emb.embedBatch(data.texts);
