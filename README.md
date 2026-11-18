@@ -4,6 +4,8 @@ MCON 368 homework. Upload any collection of pages about one person; the app chun
 
 **Live site:** https://rag.bluebid.online
 
+**Hand-in:** [WRITEUP.md](WRITEUP.md) · story: [public/runs/franklin-story.md](public/runs/franklin-story.md) · logs + review: [public/runs/franklin-report.md](public/runs/franklin-report.md) · raw log: [public/runs/franklin-run.json](public/runs/franklin-run.json)
+
 ## What it does
 
 | Step | How |
@@ -39,8 +41,8 @@ Six public-domain books from Project Gutenberg, in `public/corpus/franklin/`:
 
 ## Run it yourself
 
-1. Open the site → **Add the 6 books to the list** → **Chunk, embed & store** (a few minutes in the browser), or **Load prebuilt store** for the same store built by `scripts/build-store.mjs`.
-2. **Run all 20 queries + canaries + story** (about 3 minutes on the Gemini free tier, which is rate-limited).
+1. Open the site → **Add the 6 books to the list** → **Chunk, embed & store** (about 3 minutes on a laptop using GPU + CPU), or **Load prebuilt store** for the same store built by `scripts/build-store.mjs`.
+2. **Run all 20 queries + canaries + story** (about 4 minutes on the Gemini free tier, which is rate-limited).
 3. Read the story (click any chunk ID to see the snippet), the review, and the logs. Download them.
 
 For another person: type their name, drop in their pages, build, and write your own canary questions.
