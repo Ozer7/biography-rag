@@ -2,7 +2,8 @@
 // The API key lives in the GEMINI_API_KEY environment variable (never in the repo).
 // A visitor may instead send their own key in the "x-user-key" header.
 
-const PREFERRED = (process.env.GEMINI_MODEL || 'gemini-2.5-flash,gemini-flash-latest,gemini-2.5-flash-lite,gemini-2.0-flash')
+// Tried in order. A model that is missing, has no free quota, or is overloaded (503) is skipped.
+const PREFERRED = (process.env.GEMINI_MODEL || 'gemini-flash-latest,gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash,gemini-flash-lite-latest,gemini-3.5-flash-lite')
   .split(',').map(s => s.trim()).filter(Boolean);
 let workingModel = null; // remembered per warm instance
 
@@ -35,7 +36,9 @@ export default async function handler(req, res) {
 
   const models = workingModel ? [workingModel, ...PREFERRED.filter(m => m !== workingModel)] : PREFERRED;
   let last = null;
+  const t0 = Date.now();
   for (const model of models) {
+    if (Date.now() - t0 > 40000) break; // stay inside the function's time limit
     let { status, data } = await callGemini(model, key, body);
     if (status === 400 && body.generationConfig.responseSchema && /schema|response_schema|responseSchema/i.test(data.error?.message || '')) {
       // Older/other models may reject the schema: retry once with plain JSON mode.
@@ -50,11 +53,13 @@ export default async function handler(req, res) {
     }
     const msg = data.error?.message || `HTTP ${status}`;
     last = { status, msg, model };
-    // Try the next model only if this one is missing or has no free quota at all.
-    const noModel = status === 404 || /not found|not supported/i.test(msg);
+    // Try the next model if this one is missing, has no free quota at all, or is overloaded.
+    const noModel = status === 404 || /not found|not supported|no longer available/i.test(msg);
     const zeroQuota = status === 429 && /limit:\s*0\b/.test(msg);
-    if (!(noModel || zeroQuota)) break;
+    const overloaded = status === 503 || status === 500;
+    if (!(noModel || zeroQuota || overloaded)) break;
   }
   const retry = /retry in ([\d.]+)s/i.exec(last.msg);
-  return res.status(last.status === 429 ? 429 : 502).json({ error: last.msg, model: last.model, retryAfterSec: retry ? Math.ceil(+retry[1]) : null });
+  if (!last) return res.status(503).json({ error: 'Timed out trying models', retryAfterSec: 10 });
+  return res.status(last.status === 429 ? 429 : last.status === 503 ? 503 : 502).json({ error: last.msg, model: last.model, retryAfterSec: retry ? Math.ceil(+retry[1]) : null });
 }
