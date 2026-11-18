@@ -38,7 +38,7 @@ async function answerOne(ctx, item) {
   rec.prompt = { system: ANSWER_SYSTEM, user: answerPrompt(person, question, snippets) };
   onEvent?.({ type: 'query-start', rec });
   try {
-    const res = await llm({ label: `${rec.kind} ${item.n}`, system: rec.prompt.system, prompt: rec.prompt.user, schema: ANSWER_SCHEMA });
+    const res = await llm({ label: `${rec.kind} ${item.n}`, system: rec.prompt.system, prompt: rec.prompt.user, schema: ANSWER_SCHEMA, maxTokens: 1500 });
     rec.raw_response = res.text; rec.model = res.model;
     const parsed = parseJson(res.text);
     const allowed = new Set(rec.retrieved_ids);
@@ -101,7 +101,7 @@ async function writeStory(ctx, run) {
   onEvent?.({ type: 'story-start' });
   if (!answered.length) { story.title = person; story.paragraphs = []; story.verified = []; story.note = 'Nothing was found in the sources.'; return story; }
   try {
-    const res = await llm({ label: 'story', system: story.prompt.system, prompt: story.prompt.user, schema: STORY_SCHEMA });
+    const res = await llm({ label: 'story', system: story.prompt.system, prompt: story.prompt.user, schema: STORY_SCHEMA, maxTokens: 8192 });
     story.raw_response = res.text; story.model = res.model;
     const parsed = parseJson(res.text);
     const allowed = new Set(ids);
@@ -121,7 +121,7 @@ async function runAudit(ctx, run) {
   const audit = { prompt: { system: AUDIT_SYSTEM, user: auditPrompt(items) } };
   onEvent?.({ type: 'audit-start' });
   try {
-    const res = await llm({ label: 'audit', system: audit.prompt.system, prompt: audit.prompt.user, schema: AUDIT_SCHEMA });
+    const res = await llm({ label: 'audit', system: audit.prompt.system, prompt: audit.prompt.user, schema: AUDIT_SCHEMA, maxTokens: 6000 });
     audit.raw_response = res.text; audit.model = res.model;
     const parsed = parseJson(res.text);
     audit.verdicts = (parsed.verdicts || []).map(v => ({ ...v, text: items[v.k - 1]?.text }));

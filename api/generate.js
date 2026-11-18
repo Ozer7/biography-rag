@@ -32,13 +32,13 @@ export default async function handler(req, res) {
   if (process.env.ACCESS_CODE && req.headers['x-access-code'] !== process.env.ACCESS_CODE && !req.headers['x-user-key'])
     return res.status(401).json({ error: 'Access code required.' });
 
-  const { system, prompt, schema, temperature = 0.2 } = req.body || {};
+  const { system, prompt, schema, temperature = 0.2, maxTokens = 4096 } = req.body || {};
   if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'Missing prompt' });
   if (prompt.length > 400000) return res.status(413).json({ error: 'Prompt too long' });
 
   const body = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { temperature, responseMimeType: 'application/json', ...(schema ? { responseSchema: schema } : {}) },
+    generationConfig: { temperature, maxOutputTokens: Math.min(16384, +maxTokens || 4096), responseMimeType: 'application/json', ...(schema ? { responseSchema: schema } : {}) },
   };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
 

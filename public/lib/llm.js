@@ -1,7 +1,7 @@
 // Browser client for /api/generate with pacing and retries (the Gemini free tier is rate-limited).
 export function makeLlm({ userKey = '', accessCode = '', minIntervalMs = 4000, onStatus } = {}) {
   let last = 0;
-  return async function llm({ label, system, prompt, schema }) {
+  return async function llm({ label, system, prompt, schema, maxTokens }) {
     for (let attempt = 1; attempt <= 6; attempt++) {
       const wait = last + minIntervalMs - Date.now();
       if (wait > 0) { onStatus?.(`${label}: pacing ${Math.ceil(wait / 1000)}s`); await new Promise(r => setTimeout(r, wait)); }
@@ -11,7 +11,7 @@ export function makeLlm({ userKey = '', accessCode = '', minIntervalMs = 4000, o
       if (accessCode) headers['x-access-code'] = accessCode;
       let r, j;
       try {
-        r = await fetch('/api/generate', { method: 'POST', headers, body: JSON.stringify({ system, prompt, schema }) });
+        r = await fetch('/api/generate', { method: 'POST', headers, body: JSON.stringify({ system, prompt, schema, maxTokens }) });
         j = await r.json().catch(() => ({}));
       } catch (e) { j = { error: e.message }; r = { status: 0 }; }
       if (r.status === 200) return j;
