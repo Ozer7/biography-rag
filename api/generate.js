@@ -7,14 +7,22 @@ const PREFERRED = (process.env.GEMINI_MODEL || 'gemini-flash-latest,gemini-3.8-f
   .split(',').map(s => s.trim()).filter(Boolean);
 let workingModel = null; // remembered per warm instance
 
-async function callGemini(model, key, body) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify(body),
-  });
-  const data = await r.json().catch(() => ({}));
-  return { status: r.status, data };
+async function callGemini(model, key, body, timeoutMs) {
+  // A hung request must not use up the function's 60 s limit, so each call gets its own timeout.
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify(body),
+      signal: ctl.signal,
+    });
+    const data = await r.json().catch(() => ({}));
+    return { status: r.status, data };
+  } catch (e) {
+    return { status: 503, data: { error: { message: e.name === 'AbortError' ? `timed out after ${timeoutMs / 1000}s` : e.message } } };
+  } finally { clearTimeout(timer); }
 }
 
 export default async function handler(req, res) {
@@ -38,12 +46,13 @@ export default async function handler(req, res) {
   let last = null;
   const t0 = Date.now();
   for (const model of models) {
-    if (Date.now() - t0 > 40000) break; // stay inside the function's time limit
-    let { status, data } = await callGemini(model, key, body);
+    const left = 52000 - (Date.now() - t0); // stay inside the function's 60 s limit
+    if (left < 8000) break;
+    let { status, data } = await callGemini(model, key, body, Math.min(30000, left));
     if (status === 400 && body.generationConfig.responseSchema && /schema|response_schema|responseSchema/i.test(data.error?.message || '')) {
       // Older/other models may reject the schema: retry once with plain JSON mode.
       delete body.generationConfig.responseSchema;
-      ({ status, data } = await callGemini(model, key, body));
+      ({ status, data } = await callGemini(model, key, body, Math.min(30000, 52000 - (Date.now() - t0))));
     }
     if (status === 200) {
       workingModel = model;

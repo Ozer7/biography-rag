@@ -113,7 +113,7 @@ function setDefaultCanaries() {
   const ta = $('#canaries');
   if (ta.dataset.touched) return;
   const d = DEFAULT_CANARIES[person.toLowerCase()];
-  ta.value = d ? d.join('\n') : '';
+  ta.value = d ? d.map(c => fill(c, person)).join('\n') : '';
   ta.placeholder = d ? '' : `e.g. a true fact about ${person || 'this person'} that your pages never mention`;
 }
 function renderQuestions() {
