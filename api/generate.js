@@ -3,7 +3,7 @@
 // A visitor may instead send their own key in the "x-user-key" header.
 
 // Tried in order. A model that is missing, has no free quota, or is overloaded (503) is skipped.
-const PREFERRED = (process.env.GEMINI_MODEL || 'gemini-flash-latest,gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash,gemini-flash-lite-latest,gemini-3.5-flash-lite')
+const PREFERRED = (process.env.GEMINI_MODEL || 'gemini-flash-lite-latest,gemini-3.5-flash-lite,gemini-flash-latest,gemini-3.8-flash')
   .split(',').map(s => s.trim()).filter(Boolean);
 let workingModel = null; // remembered per warm instance
 
